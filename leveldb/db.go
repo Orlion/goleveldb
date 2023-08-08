@@ -129,6 +129,7 @@ func openDB(s *session) (*DB, error) {
 		}
 	} else {
 		// Recover journals.
+		// 恢复日志
 		if err := db.recoverJournal(); err != nil {
 			return nil, err
 		}
@@ -153,6 +154,7 @@ func openDB(s *session) (*DB, error) {
 			return nil, err
 		}
 	} else {
+		// 等待下面两个compaction协程退出
 		db.closeW.Add(2)
 		go db.tCompaction()
 		go db.mCompaction()
@@ -160,7 +162,7 @@ func openDB(s *session) (*DB, error) {
 	}
 
 	s.logf("db@open done T·%v", time.Since(start))
-
+	// db被gc时执行Close函数
 	runtime.SetFinalizer(db, (*DB).Close)
 	return db, nil
 }
@@ -177,6 +179,7 @@ func openDB(s *session) (*DB, error) {
 // The returned DB instance is safe for concurrent use.
 // The DB must be closed after use, by calling Close method.
 func Open(stor storage.Storage, o *opt.Options) (db *DB, err error) {
+	// TODO: session是什么？
 	s, err := newSession(stor, o)
 	if err != nil {
 		return
@@ -220,6 +223,7 @@ func Open(stor storage.Storage, o *opt.Options) (db *DB, err error) {
 // The returned DB instance is safe for concurrent use.
 // The DB must be closed after use, by calling Close method.
 func OpenFile(path string, o *opt.Options) (db *DB, err error) {
+	// 使用打开并检查数据目录，返回fileStorage
 	stor, err := storage.OpenFile(path, o.GetReadOnly())
 	if err != nil {
 		return
@@ -487,15 +491,19 @@ func recoverTable(s *session, o *opt.Options) error {
 	return s.commit(rec, false)
 }
 
+// 恢复日志
 func (db *DB) recoverJournal() error {
 	// Get all journals and sort it by file number.
+	// 遍历数据目录下面的日志文件
 	rawFds, err := db.s.stor.List(storage.TypeJournal)
 	if err != nil {
 		return err
 	}
+	// 根据文件序号进行排序
 	sortFds(rawFds)
 
 	// Journals that will be recovered.
+	// 应该被恢复的日志文件
 	var fds []storage.FileDesc
 	for _, fd := range rawFds {
 		if fd.Num >= db.s.stJournalNum || fd.Num == db.s.stPrevJournalNum {
@@ -931,6 +939,7 @@ func (db *DB) GetSnapshot() (*Snapshot, error) {
 // GetProperty returns value of the given property name.
 //
 // Property names:
+//
 //	leveldb.num-files-at-level{n}
 //		Returns the number of files at level 'n'.
 //	leveldb.stats

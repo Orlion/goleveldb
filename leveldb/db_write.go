@@ -305,6 +305,7 @@ func (db *DB) Write(batch *Batch, wo *opt.WriteOptions) error {
 			return ErrClosed
 		}
 	} else {
+		// 抢锁
 		select {
 		case db.writeLockC <- struct{}{}:
 			// Write lock acquired.
@@ -321,15 +322,20 @@ func (db *DB) Write(batch *Batch, wo *opt.WriteOptions) error {
 }
 
 func (db *DB) putRec(kt keyType, key, value []byte, wo *opt.WriteOptions) error {
+	// 判断数据库是否关闭
 	if err := db.ok(); err != nil {
 		return err
 	}
 
+	// 写merge
 	merge := !wo.GetNoWriteMerge() && !db.s.o.GetNoWriteMerge()
+	// 是否要刷盘
 	sync := wo.GetSync() && !db.s.o.GetNoSync()
 
 	// Acquire write lock.
 	if merge {
+		// 尝试写到merge channel中批量写入或者尝试抢锁，
+		// 如果抢到了锁则执行写入
 		select {
 		case db.writeMergeC <- writeMerge{sync: sync, keyType: kt, key: key, value: value}:
 			if <-db.writeMergedC {
@@ -359,6 +365,7 @@ func (db *DB) putRec(kt keyType, key, value []byte, wo *opt.WriteOptions) error 
 		}
 	}
 
+	// 抢到了锁执行写入操作
 	batch := db.batchPool.Get().(*Batch)
 	batch.Reset()
 	batch.appendRec(kt, key, value)
